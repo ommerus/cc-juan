@@ -1,9 +1,11 @@
 #!/bin/bash
-# One-liner de despliegue de Claude Code para Juan
-# Soporta PASS="contraseña" bash
+# One-liner universal de despliegue de Claude Code para Juan
+# Soporta: Ubuntu/Debian, CachyOS/Arch, MacOS
+# Uso: PASS="vanejuanpabloana01" bash
 
 set -e
 
+# 1. Validación de Contraseña
 if [ -n "$PASS" ]; then
     pass="$PASS"
 else
@@ -17,29 +19,75 @@ if [ "$pass" != "vanejuanpabloana01" ]; then
     exit 1
 fi
 
-echo "✅ Acceso concedido. Iniciando despliegue de Claude Code..."
+echo "✅ Acceso concedido. Detectando sistema operativo..."
 
-# Instalación de dependencias básicas (unzip es necesario para el ZIP)
-if ! command -v unzip &> /dev/null; then
-    echo "📦 Instalando unzip..."
-    sudo apt-get update && sudo apt-get install -y unzip
+# 2. Detección de OS y Gestor de Paquetes
+OS="$(uname -s)"
+if [ "$OS" = "Darwin" ]; then
+    PKG_MGR="brew"
+    echo "🍎 Sistema detectado: MacOS"
+elif [ -f /etc/arch-release ]; then
+    PKG_MGR="pacman"
+    echo "🚀 Sistema detectado: CachyOS/Arch Linux"
+elif [ -f /etc/debian_version ]; then
+    PKG_MGR="apt"
+    echo "🐧 Sistema detectado: Ubuntu/Debian"
+else
+    echo "❓ Sistema no soportado automáticamente. Intentando detección genérica..."
+    PKG_MGR="unknown"
 fi
 
-if ! command -v node &> /dev/null; then
-    echo "📦 Instalando Node.js..."
-    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-    sudo apt-get install -y nodejs
-fi
+# 3. Instalación de dependencias según el OS
+install_deps() {
+    case $PKG_MGR in
+        "apt")
+            echo "📦 Instalando dependencias vía apt..."
+            sudo apt-get update
+            sudo apt-get install -y unzip curl
+            if ! command -v node &> /dev/null; then
+                curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+                sudo apt-get install -y nodejs
+            fi
+            ;;
+        "pacman")
+            echo "📦 Instalando dependencias vía pacman..."
+            sudo pacman -S --noconfirm unzip curl nodejs npm
+            ;;
+        "brew")
+            echo "📦 Instalando dependencias vía brew..."
+            if ! command -v brew &> /dev/null; then
+                echo "Installing Homebrew first..."
+                /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+                eval "$($(brew --prefix)/bin/brew shellenv)"
+            fi
+            brew install unzip curl node
+            ;;
+        *)
+            echo "❌ No se pudo determinar el gestor de paquetes. Por favor, instala nodejs, npm y unzip manualmente."
+            exit 1
+            ;;
+    esac
+}
 
+install_deps
+
+# 4. Instalación de Claude Code
 echo "🚀 Instalando @anthropic-ai/claude-code..."
-sudo npm install -g @anthropic-ai/claude-code
+sudo npm install -g @anthropic-ai/claude-code || npm install -g @anthropic-ai/claude-code
 
+# 5. Restauración de configuración cifrada
 echo "⚙️ Descargando y restaurando configuración cifrada..."
 mkdir -p ~/.claude
 curl -sSL https://github.com/ommerus/cc-juan/raw/master/config.zip -o /tmp/config.zip
 unzip -P "$pass" -o /tmp/config.zip -d /tmp/claude_temp
-# El zip contiene la carpeta .claude, movemos el contenido
-cp -r /tmp/claude_temp/.claude/* ~/.claude/ 2>/dev/null || cp -r /tmp/claude_temp/* ~/.claude/
+
+# Manejo de rutas del ZIP (asegurar que el contenido vaya a ~/.claude)
+if [ -d "/tmp/claude_temp/.claude" ]; then
+    cp -r /tmp/claude_temp/.claude/* ~/.claude/
+else
+    cp -r /tmp/claude_temp/* ~/.claude/
+fi
+
 rm -rf /tmp/config.zip /tmp/claude_temp
 
-echo "🎉 ¡Despliegue completado! Ya puedes ejecutar 'claude'."
+echo "🎉 ¡Despliegue universal completado! Ya puedes ejecutar 'claude'."
